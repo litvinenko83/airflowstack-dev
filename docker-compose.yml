@@ -1,0 +1,104 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:6.2.6
+    ports:
+      - 6379:6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 30s
+      retries: 50
+
+  webserver:
+    image: "$AIRFLOWSTACK_TAG_BASE:$AIRFLOWSTACK_TAG"
+    env_file:
+      - ./airflow.env
+    ports:
+      - 8080:8080
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - /opt/airflowstack/shared/airflow/dags:/opt/airflow/dags
+      - /opt/airflowstack/shared/airflow/logs:/opt/airflow/logs
+      - /opt/airflowstack/shared/airflow/plugins:/opt/airflow/plugins
+    command: webserver
+  
+  scheduler:
+    image: "$AIRFLOWSTACK_TAG_BASE:$AIRFLOWSTACK_TAG"
+    env_file:
+      - ./airflow.env
+    volumes:
+      - /opt/airflowstack/shared/airflow/dags:/opt/airflow/dags
+      - /opt/airflowstack/shared/airflow/logs:/opt/airflow/logs
+      - /opt/airflowstack/shared/airflow/plugins:/opt/airflow/plugins
+    command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  worker:
+    image: "$AIRFLOWSTACK_TAG_BASE:$AIRFLOWSTACK_TAG"
+    env_file:
+      - ./airflow.env
+    volumes:
+      - /opt/airflowstack/shared/airflow/dags:/opt/airflow/dags
+      - /opt/airflowstack/shared/airflow/logs:/opt/airflow/logs
+      - /opt/airflowstack/shared/airflow/plugins:/opt/airflow/plugins
+    command: celery worker
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - 'celery --app airflow.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}"'
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  triggerer:
+    image: "$AIRFLOWSTACK_TAG_BASE:$AIRFLOWSTACK_TAG"
+    env_file:
+      - ./airflow.env
+    volumes:
+      - /opt/airflowstack/shared/airflow/dags:/opt/airflow/dags
+      - /opt/airflowstack/shared/airflow/logs:/opt/airflow/logs
+      - /opt/airflowstack/shared/airflow/plugins:/opt/airflow/plugins
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  flower:
+    image: "$AIRFLOWSTACK_TAG_BASE:$AIRFLOWSTACK_TAG"
+    env_file:
+      - ./airflow.env
+    volumes:
+      - /opt/airflowstack/shared/airflow/dags:/opt/airflow/dags
+      - /opt/airflowstack/shared/airflow/logs:/opt/airflow/logs
+      - /opt/airflowstack/shared/airflow/plugins:/opt/airflow/plugins
+    command: celery flower
+    ports:
+      - 5555:5555
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:5555/"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  cli:
+    image: "$AIRFLOWSTACK_TAG_BASE:$AIRFLOWSTACK_TAG"
+    env_file:
+      - ./airflow.env
+    volumes:
+      - /opt/airflowstack/shared/airflow/dags:/opt/airflow/dags
+      - /opt/airflowstack/shared/airflow/logs:/opt/airflow/logs
+      - /opt/airflowstack/shared/airflow/plugins:/opt/airflow/plugins
+    entrypoint: /bin/bash
+    command: ["-c", "sleep infinity"]

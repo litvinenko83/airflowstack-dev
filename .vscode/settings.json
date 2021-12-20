@@ -1,0 +1,6 @@
+{
+    "mssql.format.datatypeCasing": "lowercase",
+    "mssql.format.keywordCasing": "lowercase",
+    "mssql.intelliSense.lowerCaseSuggestions": true,
+    "mssql.format.placeSelectStatementReferencesOnNewLine": true
+}

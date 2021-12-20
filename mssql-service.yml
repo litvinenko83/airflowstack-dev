@@ -1,0 +1,25 @@
+
+  db:
+    image: mcr.microsoft.com/mssql/server:2017-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=RRUTUAqFXI8YrA5oM0n3
+      - TZ=Europe/Moscow
+      - MSSQL_PID=Express
+    ports:
+      - 1433:1433
+    volumes:
+      - "/opt/airflowstack/db_sql_server/data:/var/opt/mssql/data"
+      - "/opt/airflowstack/db_sql_server/secrets:/var/opt/mssql/secrets"
+      - "/opt/airflowstack/shared/sql_server/logs:/var/opt/mssql/log"
+    command: bash -c " 
+      /opt/mssql/bin/sqlservr 
+      && sleep 30 
+      && /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P RRUTUAqFXI8YrA5oM0n3_ -Q \" \
+          CREATE DATABASE airflow; \
+          ALTER DATABASE airflow SET READ_COMMITTED_SNAPSHOT ON; \
+          CREATE LOGIN airflow WITH PASSWORD='airflow', CHECK_POLICY = OFF, CHECK_EXPIRATION = OFF; \"
+      && /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P RRUTUAqFXI8YrA5oM0n3_ -Q \" \
+          USE airflow; \
+          CREATE USER airflow FROM LOGIN airflow; \
+          EXEC sp_addrolemember N'db_owner', N'airflow'; \" "

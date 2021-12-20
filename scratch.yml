@@ -1,0 +1,220 @@
+version: '3.8'
+
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2017-latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=RRUTUAqFXI8YrA5oM0n3
+      - TZ=Europe/Moscow
+      - MSSQL_PID=Express
+    ports:
+      - 1433:1433
+    volumes:
+      - "/opt/airflow_stack/db_sql_server/data:/var/opt/mssql/data"
+      - "/opt/airflow_stack/db_sql_server/secrets:/var/opt/mssql/secrets"
+      - "/opt/airflow_stack/shared/sql_server/logs:/var/opt/mssql/log"
+    command: bash -c "
+      /opt/mssql/bin/sqlservr
+      && sleep 30
+      && /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P RRUTUAqFXI8YrA5oM0n3 -Q " \
+          CREATE DATABASE airflow; \
+          ALTER DATABASE airflow SET READ_COMMITTED_SNAPSHOT ON; \
+          CREATE LOGIN airflow WITH PASSWORD='airflow', CHECK_POLICY = OFF, CHECK_EXPIRATION = OFF; "
+      && /opt/mssql-tools/bin/sqlcmd -S localhost -U SA -P RRUTUAqFXI8YrA5oM0n3 -Q " \
+          USE airflow; \
+          CREATE USER airflow FROM LOGIN airflow; \
+          EXEC sp_addrolemember N'db_owner', N'airflow'; "
+
+  redis:
+    image: redis:6.2.6
+    ports:
+      - 6379:6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 30s
+      retries: 50
+
+  webserver:
+    image: apache/airflow:2.2.2
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=mssql+pyodbc://airflow:airflow@db:1433/airflow?driver=ODBC+Driver+17+for+SQL+Server
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+mssql://airflow:airflow@db:1433/airflow?driver=ODBC+Driver+17+for+SQL+Server
+      - AIRFLOW__CELERY__BROKER_URL=redis://:@redis:6379/0
+      - AIRFLOW__CORE__FERNET_KEY=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=true
+      - AIRFLOW__API__AUTH_BACKEND=airflow.api.auth.backend.basic_auth
+      - _PIP_ADDITIONAL_REQUIREMENTS=apache-airflow[microsoft.mssql,sentry,telegram,samba,imap,sqlite]==2.2.2
+      - AIRFLOW_UID=0
+      - _AIRFLOW_DB_UPGRADE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+      - _AIRFLOW_WWW_USER_USERNAME=root
+      - _AIRFLOW_WWW_USER_PASSWORD=root
+      - DUMB_INIT_SETSID=0
+      - TZ=Europe/Moscow
+    ports:
+      - 8080:8080
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+    volumes:
+      - /opt/airflow_stack/shared/airflow/dags:/opt/airflow/dags
+      - /opt/airflow_stack/shared/airflow/logs:/opt/airflow/logs
+      - /opt/airflow_stack/shared/airflow/plugins:/opt/airflow/plugins
+    command: webserver
+  
+  scheduler:
+    image: apache/airflow:2.2.2
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=mssql+pyodbc://airflow:airflow@db:1433/airflow?driver=ODBC+Driver+17+for+SQL+Server
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+mssql://airflow:airflow@db:1433/airflow?driver=ODBC+Driver+17+for+SQL+Server
+      - AIRFLOW__CELERY__BROKER_URL=redis://:@redis:6379/0
+      - AIRFLOW__CORE__FERNET_KEY=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=true
+      - AIRFLOW__API__AUTH_BACKEND=airflow.api.auth.backend.basic_auth
+      - _PIP_ADDITIONAL_REQUIREMENTS=apache-airflow[microsoft.mssql,sentry,telegram,samba,imap,sqlite]==2.2.2
+      - AIRFLOW_UID=0
+      - _AIRFLOW_DB_UPGRADE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+      - _AIRFLOW_WWW_USER_USERNAME=root
+      - _AIRFLOW_WWW_USER_PASSWORD=root
+      - DUMB_INIT_SETSID=0
+      - TZ=Europe/Moscow
+    volumes:
+      - /opt/airflow_stack/shared/airflow/dags:/opt/airflow/dags
+      - /opt/airflow_stack/shared/airflow/logs:/opt/airflow/logs
+      - /opt/airflow_stack/shared/airflow/plugins:/opt/airflow/plugins
+    command: scheduler
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type SchedulerJob --hostname "$${HOSTNAME}"']
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  worker:
+    image: apache/airflow:2.2.2
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=mssql+pyodbc://airflow:airflow@db:1433/airflow?driver=ODBC+Driver+17+for+SQL+Server
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+mssql://airflow:airflow@db:1433/airflow?driver=ODBC+Driver+17+for+SQL+Server
+      - AIRFLOW__CELERY__BROKER_URL=redis://:@redis:6379/0
+      - AIRFLOW__CORE__FERNET_KEY=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=true
+      - AIRFLOW__API__AUTH_BACKEND=airflow.api.auth.backend.basic_auth
+      - _PIP_ADDITIONAL_REQUIREMENTS=apache-airflow[microsoft.mssql,sentry,telegram,samba,imap,sqlite]==2.2.2
+      - AIRFLOW_UID=0
+      - _AIRFLOW_DB_UPGRADE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+      - _AIRFLOW_WWW_USER_USERNAME=root
+      - _AIRFLOW_WWW_USER_PASSWORD=root
+      - DUMB_INIT_SETSID=0
+      - TZ=Europe/Moscow
+    volumes:
+      - /opt/airflow_stack/shared/airflow/dags:/opt/airflow/dags
+      - /opt/airflow_stack/shared/airflow/logs:/opt/airflow/logs
+      - /opt/airflow_stack/shared/airflow/plugins:/opt/airflow/plugins
+    command: celery worker
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - 'celery --app airflow.executors.celery_executor.app inspect ping -d "celery@$${HOSTNAME}"'
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  triggerer:
+    image: apache/airflow:2.2.2
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=mssql+pyodbc://airflow:airflow@db:1433/airflow?driver=ODBC+Driver+17+for+SQL+Server
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+mssql://airflow:airflow@db:1433/airflow?driver=ODBC+Driver+17+for+SQL+Server
+      - AIRFLOW__CELERY__BROKER_URL=redis://:@redis:6379/0
+      - AIRFLOW__CORE__FERNET_KEY=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=true
+      - AIRFLOW__API__AUTH_BACKEND=airflow.api.auth.backend.basic_auth
+      - _PIP_ADDITIONAL_REQUIREMENTS=apache-airflow[microsoft.mssql,sentry,telegram,samba,imap,sqlite]==2.2.2
+      - AIRFLOW_UID=0
+      - _AIRFLOW_DB_UPGRADE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+      - _AIRFLOW_WWW_USER_USERNAME=root
+      - _AIRFLOW_WWW_USER_PASSWORD=root
+      - DUMB_INIT_SETSID=0
+      - TZ=Europe/Moscow
+    volumes:
+      - /opt/airflow_stack/shared/airflow/dags:/opt/airflow/dags
+      - /opt/airflow_stack/shared/airflow/logs:/opt/airflow/logs
+      - /opt/airflow_stack/shared/airflow/plugins:/opt/airflow/plugins
+    command: triggerer
+    healthcheck:
+      test: ["CMD-SHELL", 'airflow jobs check --job-type TriggererJob --hostname "$${HOSTNAME}"']
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  flower:
+    image: apache/airflow:2.2.2
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=mssql+pyodbc://airflow:airflow@db:1433/airflow?driver=ODBC+Driver+17+for+SQL+Server
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+mssql://airflow:airflow@db:1433/airflow?driver=ODBC+Driver+17+for+SQL+Server
+      - AIRFLOW__CELERY__BROKER_URL=redis://:@redis:6379/0
+      - AIRFLOW__CORE__FERNET_KEY=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=true
+      - AIRFLOW__API__AUTH_BACKEND=airflow.api.auth.backend.basic_auth
+      - _PIP_ADDITIONAL_REQUIREMENTS=apache-airflow[microsoft.mssql,sentry,telegram,samba,imap,sqlite]==2.2.2
+      - AIRFLOW_UID=0
+      - _AIRFLOW_DB_UPGRADE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+      - _AIRFLOW_WWW_USER_USERNAME=root
+      - _AIRFLOW_WWW_USER_PASSWORD=root
+      - DUMB_INIT_SETSID=0
+      - TZ=Europe/Moscow
+    volumes:
+      - /opt/airflow_stack/shared/airflow/dags:/opt/airflow/dags
+      - /opt/airflow_stack/shared/airflow/logs:/opt/airflow/logs
+      - /opt/airflow_stack/shared/airflow/plugins:/opt/airflow/plugins
+    command: celery flower
+    ports:
+      - 5555:5555
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:5555/"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  cli:
+    image: apache/airflow:2.2.2
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=CeleryExecutor
+      - AIRFLOW__CORE__SQL_ALCHEMY_CONN=mssql+pyodbc://airflow:airflow@db:1433/airflow?driver=ODBC+Driver+17+for+SQL+Server
+      - AIRFLOW__CELERY__RESULT_BACKEND=db+mssql://airflow:airflow@db:1433/airflow?driver=ODBC+Driver+17+for+SQL+Server
+      - AIRFLOW__CELERY__BROKER_URL=redis://:@redis:6379/0
+      - AIRFLOW__CORE__FERNET_KEY=
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=true
+      - AIRFLOW__CORE__LOAD_EXAMPLES=true
+      - AIRFLOW__API__AUTH_BACKEND=airflow.api.auth.backend.basic_auth
+      - _PIP_ADDITIONAL_REQUIREMENTS=apache-airflow[microsoft.mssql,sentry,telegram,samba,imap,sqlite]==2.2.2
+      - AIRFLOW_UID=0
+      - _AIRFLOW_DB_UPGRADE=true
+      - _AIRFLOW_WWW_USER_CREATE=true
+      - _AIRFLOW_WWW_USER_USERNAME=root
+      - _AIRFLOW_WWW_USER_PASSWORD=root
+      - DUMB_INIT_SETSID=0
+      - TZ=Europe/Moscow
+    volumes:
+      - /opt/airflow_stack/shared/airflow/dags:/opt/airflow/dags
+      - /opt/airflow_stack/shared/airflow/logs:/opt/airflow/logs
+      - /opt/airflow_stack/shared/airflow/plugins:/opt/airflow/plugins
+    entrypoint: /bin/bash
+    command: ["-c", "sleep infinity"]
+
